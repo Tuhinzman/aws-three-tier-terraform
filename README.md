@@ -1,200 +1,162 @@
-# AWS Three-Tier Architecture with Standby Tier
+# Animals4Life VPC Infrastructure with Terraform
 
-This repository contains Terraform configurations to deploy a highly available three-tier architecture in AWS with an additional standby tier for future expansion and disaster recovery.
+This repository contains Terraform code that creates a complete AWS networking infrastructure based on the Animals4Life VPC template. It's designed following AWS best practices with a multi-AZ, multi-tier architecture.
 
-## Architecture Diagram
+## Architecture Overview
+
+This infrastructure creates a VPC with public and private subnets distributed across three availability zones, following a tiered approach:
 
 ```
-                                  AWS Cloud (Region)
-+-----------------------------------------------------------------------------------------------+
-|                                                                                               |
-|  +-------------------------------+   +-------------------------------+   +------------------+ |
-|  |        Availability Zone A    |   |        Availability Zone B    |   |  Availability Zone C |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  | |   Public Subnet (Web)     | |   | |   Public Subnet (Web)     | |   | |  Public Subnet | |
-|  | |   10.0.48.0/20            | |   | |   10.0.112.0/20           | |   | |  10.0.176.0/20 | |
-|  | | +-----+   +-----+  +----+ | |   | | +-----+   +-----+  +----+ | |   | | +---+ +---+ +--+ |
-|  | | | IGW |<->| NATG |<-|EC2 | | |   | | | IGW |<->| NATG |<-|EC2 | | |   | | |IGW|<|NAT|<|EC2|
-|  | | +-----+   +-----+  +----+ | |   | | +-----+   +-----+  +----+ | |   | | +---+ +---+ +--+ |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  |              ^                |   |              ^                |   |         ^          |
-|  |              | SG Rules       |   |              | SG Rules       |   |         | SG Rules |
-|  |              v                |   |              v                |   |         v          |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  | |   Private Subnet (App)    | |   | |   Private Subnet (App)    | |   | | Private Subnet | |
-|  | |   10.0.32.0/20            | |   | |   10.0.96.0/20            | |   | | 10.0.160.0/20  | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | | |         EC2           | | |   | | |         EC2           | | |   | | |     EC2    | | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  |              ^                |   |              ^                |   |         ^          |
-|  |              | SG Rules       |   |              | SG Rules       |   |         | SG Rules |
-|  |              v                |   |              v                |   |         v          |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  | |   Private Subnet (DB)     | |   | |   Private Subnet (DB)     | |   | | Private Subnet | |
-|  | |   10.0.16.0/20            | |   | |   10.0.80.0/20            | |   | | 10.0.144.0/20  | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | | |       RDS/Aurora      | | |   | | |       RDS/Aurora      | | |   | | |  RDS/Aurora | | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  |              ^                |   |              ^                |   |         ^          |
-|  |              | SG Rules       |   |              | SG Rules       |   |         | SG Rules |
-|  |              v                |   |              v                |   |         v          |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  | |   Private Subnet (Standby)| |   | |   Private Subnet (Standby)| |   | | Private Subnet | |
-|  | |   10.0.0.0/20             | |   | |   10.0.64.0/20            | |   | | 10.0.128.0/20  | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | | |     Future Use        | | |   | | |     Future Use        | | |   | | |  Future Use | | |
-|  | | +-----------------------+ | |   | | +-----------------------+ | |   | | +------------+ | |
-|  | +---------------------------+ |   | +---------------------------+ |   | +----------------+ |
-|  +-------------------------------+   +-------------------------------+   +------------------+ |
-|                                                                                               |
-+-----------------------------------------------------------------------------------------------+
+┌──────────────────────────────────────────────────────────────┐
+│                        VPC (10.16.0.0/16)                     │
+│                                                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐       │
+│  │    AZ-A     │    │    AZ-B     │    │    AZ-C     │       │
+│  │             │    │             │    │             │       │
+│  │ ┌─────────┐ │    │ ┌─────────┐ │    │ ┌─────────┐ │       │
+│  │ │ Reserved│ │    │ │ Reserved│ │    │ │ Reserved│ │       │
+│  │ │10.16.0/20│ │    │ │10.16.64/20│    │ │10.16.128/20     │
+│  │ └─────────┘ │    │ └─────────┘ │    │ └─────────┘ │       │
+│  │             │    │             │    │             │       │
+│  │ ┌─────────┐ │    │ ┌─────────┐ │    │ ┌─────────┐ │       │
+│  │ │   DB    │ │    │ │   DB    │ │    │ │   DB    │ │       │
+│  │ │10.16.16/20│    │ │10.16.80/20│    │ │10.16.144/20     │
+│  │ └─────────┘ │    │ └─────────┘ │    │ └─────────┘ │       │
+│  │             │    │             │    │             │       │
+│  │ ┌─────────┐ │    │ ┌─────────┐ │    │ ┌─────────┐ │       │
+│  │ │   App   │ │    │ │   App   │ │    │ │   App   │ │       │
+│  │ │10.16.32/20│    │ │10.16.96/20│    │ │10.16.160/20     │
+│  │ └─────────┘ │    │ └─────────┘ │    │ └─────────┘ │       │
+│  │             │    │             │    │             │       │
+│  │ ┌─────────┐ │    │ ┌─────────┐ │    │ ┌─────────┐ │       │
+│  │ │   Web   │ │    │ │   Web   │ │    │ │   Web   │ │       │
+│  │ │10.16.48/20│    │ │10.16.112/20   │ │10.16.176/20     │
+│  │ └─────────┘ │    │ └─────────┘ │    │ └─────────┘ │       │
+│  └──────┬──────┘    └──────┬──────┘    └─────────────┘       │
+│         │                  │                                  │
+│   ┌─────┴─────┐      ┌─────┴─────┐                           │
+│   │EC2 Instance│      │EC2 Instance│                          │
+│   │     A      │      │     B      │                          │
+│   └─────┬─────┘      └─────┬─────┘                           │
+│         │                  │                                  │
+│         └──────────┬───────┘                                  │
+│                    │                                          │
+│             ┌──────┴──────┐                                   │
+│             │ Internet    │                                   │
+│             │  Gateway    │                                   │
+│             └─────────────┘                                   │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Tier Explanations
+## Resources Created
 
-### 1. Web Tier (Public Subnets)
-- **Purpose**: Hosts web servers, load balancers, and other public-facing resources
-- **Security Boundaries**: 
-  - Allows inbound HTTP/HTTPS traffic from the internet
-  - Restricts outbound traffic to necessary services
-  - Protected by security groups and NACLs
-  - Resources have public IPs or are behind load balancers
+The Terraform code creates the following AWS resources:
 
-### 2. Application Tier (Private Subnets)
-- **Purpose**: Hosts application servers and business logic components
-- **Security Boundaries**:
-  - No direct internet access
-  - Accepts traffic only from the web tier
-  - Outbound internet access via NAT gateways
-  - Resources are isolated from direct external access
+1. **VPC**: A Virtual Private Cloud with IPv4 and IPv6 CIDR blocks
+2. **Subnets**: 12 subnets (4 tiers across 3 availability zones)
+   - Web tier (public)
+   - App tier (private)
+   - DB tier (private)
+   - Reserved tier (private)
+3. **Internet Gateway**: For internet access from public subnets
+4. **Route Tables**: Route tables for subnet tiers with appropriate routes
+5. **Security Groups**: A security group for the EC2 instances
+6. **IAM Roles**: Session Manager role for EC2 instance management
+7. **EC2 Instances**: Two public web instances in different web subnets with internet access
 
-### 3. Database Tier (Private Subnets)
-- **Purpose**: Hosts databases and data persistence layers
-- **Security Boundaries**:
-  - Highly restricted access (only from application tier)
-  - No internet access (inbound or outbound)
-  - Encrypted storage and transit
-  - Multiple availability zones for high availability
+## Module Structure
 
-### 4. Standby Tier (Private Subnets)
-- **Purpose**: Reserved for future expansion, disaster recovery, or specialized workloads
-- **Security Boundaries**:
-  - Isolated from production traffic
-  - Configurable connectivity based on future needs
-  - Separate subnet enables clear security policies
+The code is organized into the following Terraform modules:
 
-## Benefits of Standby Tier
+- **vpc**: Creates the VPC and associated IPv6 CIDR block
+- **subnets**: Creates all 12 subnets across 3 availability zones
+- **internet_gateway**: Creates and attaches the internet gateway
+- **route_tables**: Creates route tables and associates them with subnets
+- **security_groups**: Creates security groups for resources
+- **iam**: Creates IAM roles and instance profiles
+- **ec2**: Creates the EC2 instance with user data
 
-The standby tier provides numerous advantages to the architecture:
-
-1. **Future Expansion**:
-   - Pre-allocated address space for new services
-   - Enables clean separation of new components
-   - Reduces the need for network redesign as applications grow
-
-2. **Disaster Recovery**:
-   - Dedicated space for DR components
-   - Can host replicas, backups, or recovery infrastructure
-   - Enables separate security controls for recovery mechanisms
-
-3. **Specialized Workloads**:
-   - Ideal for batch processing jobs
-   - Can accommodate data analytics platforms
-   - Provides space for one-off or periodic processing needs
-
-4. **Flexibility**:
-   - Accommodates unexpected future requirements
-   - Provides isolation for testing new services
-   - Creates clear separation for compliance-related needs
-
-5. **Reduced Risk**:
-   - Changes in standby tier minimize impact to production
-   - Enables gradual transition of workloads
-   - Provides clean separation for staged deployments
-
-## Deployment Instructions
+## Usage
 
 ### Prerequisites
-- AWS CLI configured with appropriate permissions
-- Terraform (v1.0.0 or higher) installed
-- S3 bucket for Terraform state (optional but recommended)
+
+- Terraform v1.0.0 or newer
+- AWS CLI configured with appropriate credentials
+- AWS account with permissions to create the resources
 
 ### Deployment Steps
 
-1. **Initialize the project**:
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/a4l-vpc-terraform.git
+   cd a4l-vpc-terraform
+   ```
+
+2. Modify the `terraform.tfvars` file with your desired values:
+   ```hcl
+   region         = "us-east-1"
+   vpc_cidr_block = "10.16.0.0/16"
+   vpc_name       = "a4l-vpc1"
+   instance_type  = "t2.micro"
+   # ami_id = "" # Leave empty to use latest Amazon Linux 2 AMI
+   ```
+
+3. Initialize Terraform:
    ```bash
    terraform init
    ```
 
-2. **Customize variables** (optional):
-   Edit `terraform.tfvars` to customize deployment parameters.
-
-3. **Preview the deployment**:
+4. Plan the deployment:
    ```bash
    terraform plan
    ```
 
-4. **Deploy the infrastructure**:
+5. Apply the changes:
    ```bash
    terraform apply
    ```
 
-5. **Verify the deployment**:
-   Check the AWS Console to verify all resources were created correctly.
-
-6. **Cleanup** (when no longer needed):
+6. To destroy the infrastructure when done:
    ```bash
    terraform destroy
    ```
 
-## Resource Naming Conventions
+## Notes for AWS SAA-03 Exam Preparation
 
-Resources follow a standardized naming convention:
-```
-[project]-[environment]-[tier]-[resource_type]-[optional_identifier]
-```
+This infrastructure demonstrates several important concepts relevant to the AWS Solutions Architect Associate exam:
 
-Examples:
-- VPC: `three-tier-dev-vpc`
-- Web Subnet: `three-tier-dev-web-subnet-az1`
-- App Security Group: `three-tier-dev-app-sg`
+1. **VPC Design**: Shows a proper multi-tier, multi-AZ VPC architecture with public and private subnets
+2. **CIDR Allocation**: Demonstrates proper CIDR block allocation and subnet sizing
+3. **IPv6 Support**: Implements dual-stack IPv4/IPv6 networking
+4. **Route Tables**: Shows how to route traffic for different subnet tiers
+5. **Security Groups**: Demonstrates how to secure EC2 instances with appropriate security groups
+6. **IAM Roles**: Uses IAM roles for secure EC2 instance management via Session Manager
+7. **User Data**: Shows how to bootstrap an EC2 instance with user data
 
-## Tagging Strategy
+Key exam areas covered:
+- VPC Architecture and Design
+- Public and Private Subnets
+- Internet Gateway Configuration
+- Security Group Implementation
+- IAM Roles and Instance Profiles
+- EC2 Instance Deployment and Configuration
 
-All resources are tagged with:
-- `Project`: three-tier-architecture
-- `Environment`: dev
-- `Tier`: web/app/db/standby (as appropriate)
-- `ManagedBy`: terraform
-- `Owner`: devops
+## Important Considerations
 
-Additional resource-specific tags are applied where appropriate.
+- This template creates a t2.micro EC2 instance which falls under the AWS Free Tier
+- Remember to run `terraform destroy` when you're done to avoid unnecessary charges
+- The VPC CIDR 10.16.0.0/16 provides up to 65,536 IP addresses
+- Each subnet has a /20 CIDR block providing 4,096 IP addresses per subnet
+- Two EC2 instances are placed in different public subnets (AZ-A and AZ-B) with public IPs for internet access and high availability
+- Session Manager is configured for secure instance access without SSH key pairs
 
-## Security Considerations
+## Additional Resources for Exam Preparation
 
-1. **Network Segmentation**:
-   - Each tier is isolated in its own subnet
-   - Traffic flow is controlled via security groups and NACLs
-   - Principle of least privilege applied throughout
-
-2. **Access Controls**:
-   - IAM roles with minimal required permissions
-   - Bastion host for secure administrative access
-   - No direct internet access to private resources
-
-3. **Data Protection**:
-   - Encryption at rest for all storage
-   - Encryption in transit for all communication
-   - Regular automated snapshots for data recovery
-
-4. **Monitoring and Logging**:
-   - CloudWatch logging enabled for all services
-   - CloudTrail for API activity monitoring
-   - VPC Flow Logs for network traffic analysis
-
-5. **Compliance Best Practices**:
-   - Resource documentation via tagging
-   - Standardized security group policies
-   - Automated security scanning
+1. Study the VPC architecture diagram to understand subnet layout and CIDR allocation
+2. Review the route table configuration to understand traffic flow
+3. Examine the security group rules to understand network security implementation
+4. Consider how you might extend this architecture with:
+   - NAT Gateways for private subnet internet access
+   - VPC Endpoints for AWS service access
+   - Transit Gateways for multi-VPC connectivity
+   - Load balancers for high availability

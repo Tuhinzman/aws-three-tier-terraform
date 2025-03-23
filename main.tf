@@ -1,44 +1,45 @@
 provider "aws" {
-  region = var.aws_region
+  region = var.region
 }
 
-# Use modules for better organization
 module "vpc" {
   source = "./modules/vpc"
-
-  vpc_cidr_block        = var.vpc_cidr_block
-  availability_zones    = var.availability_zones
-  web_subnet_cidrs      = var.web_subnet_cidrs
-  app_subnet_cidrs      = var.app_subnet_cidrs
-  db_subnet_cidrs       = var.db_subnet_cidrs
-  standby_subnet_cidrs  = var.standby_subnet_cidrs
-  project               = var.project
-  environment           = var.environment
-  owner                 = var.owner
+  vpc_cidr_block = var.vpc_cidr_block
+  vpc_name       = var.vpc_name
 }
 
-module "security" {
-  source = "./modules/security"
+module "subnets" {
+  source = "./modules/subnets"
+  vpc_id = module.vpc.vpc_id
+}
 
-  vpc_id                = module.vpc.vpc_id
-  web_subnet_ids        = module.vpc.web_subnet_ids
-  app_subnet_ids        = module.vpc.app_subnet_ids
-  db_subnet_ids         = module.vpc.db_subnet_ids
-  standby_subnet_ids    = module.vpc.standby_subnet_ids
-  project               = var.project
-  environment           = var.environment
-  owner                 = var.owner
+module "internet_gateway" {
+  source = "./modules/internet_gateway"
+  vpc_id = module.vpc.vpc_id
+}
+
+module "route_tables" {
+  source              = "./modules/route_tables"
+  vpc_id              = module.vpc.vpc_id
+  internet_gateway_id = module.internet_gateway.internet_gateway_id
+  web_subnet_ids      = module.subnets.web_subnet_ids
+}
+
+module "security_groups" {
+  source = "./modules/security_groups"
+  vpc_id = module.vpc.vpc_id
 }
 
 module "iam" {
   source = "./modules/iam"
-
-  project               = var.project
-  environment           = var.environment
-  owner                 = var.owner
 }
 
-# You can add additional modules as needed, such as:
-# module "ec2" {}
-# module "rds" {}
-# module "load_balancers" {}
+module "ec2" {
+  source                      = "./modules/ec2"
+  ami_id                      = var.ami_id
+  instance_type               = var.instance_type
+  web_subnet_a_id             = module.subnets.web_subnet_a_id
+  web_subnet_b_id             = module.subnets.web_subnet_b_id
+  security_group_id           = module.security_groups.instance_sg_id
+  iam_instance_profile        = module.iam.session_manager_instance_profile_name
+}

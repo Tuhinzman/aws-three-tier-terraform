@@ -1,184 +1,79 @@
-# EC2 Role for Web Tier
-resource "aws_iam_role" "web_role" {
-  name = "${var.project}-${var.environment}-web-role"
-
+resource "aws_iam_role" "session_manager_role" {
+  name = "SessionManagerRole"
+  
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Action = "sts:AssumeRole"
         Effect = "Allow"
         Principal = {
           Service = "ec2.amazonaws.com"
         }
+        Action = "sts:AssumeRole"
       }
     ]
   })
 
   tags = {
-    Name        = "${var.project}-${var.environment}-web-role"
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "web"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
+    Name = "SessionManagerRole"
   }
 }
 
-# EC2 Role for App Tier
-resource "aws_iam_role" "app_role" {
-  name = "${var.project}-${var.environment}-app-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = {
-    Name        = "${var.project}-${var.environment}-app-role"
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "app"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
-  }
-}
-
-# Instance Profile for Web Tier
-resource "aws_iam_instance_profile" "web_profile" {
-  name = "${var.project}-${var.environment}-web-profile"
-  role = aws_iam_role.web_role.name
-
-  tags = {
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "web"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
-  }
-}
-
-# Instance Profile for App Tier
-resource "aws_iam_instance_profile" "app_profile" {
-  name = "${var.project}-${var.environment}-app-profile"
-  role = aws_iam_role.app_role.name
-
-  tags = {
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "app"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
-  }
-}
-
-# Attach SSM policy to roles (for session management)
-resource "aws_iam_role_policy_attachment" "web_ssm" {
-  role       = aws_iam_role.web_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-resource "aws_iam_role_policy_attachment" "app_ssm" {
-  role       = aws_iam_role.app_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-}
-
-# Attach CloudWatch policy to roles (for monitoring)
-resource "aws_iam_role_policy_attachment" "web_cloudwatch" {
-  role       = aws_iam_role.web_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-}
-
-resource "aws_iam_role_policy_attachment" "app_cloudwatch" {
-  role       = aws_iam_role.app_role.name
-  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
-}
-
-# Custom policy for web tier (minimal permissions)
-resource "aws_iam_policy" "web_policy" {
-  name        = "${var.project}-${var.environment}-web-policy"
-  description = "Policy for web tier instances"
+resource "aws_iam_role_policy" "session_manager_policy" {
+  name = "SessionManagerPolicy"
+  role = aws_iam_role.session_manager_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
+        Effect = "Allow"
         Action = [
-          "s3:GetObject",
-          "s3:ListBucket"
+          "ssm:DescribeAssociation",
+          "ssm:GetDeployablePatchSnapshotForInstance",
+          "ssm:GetDocument",
+          "ssm:DescribeDocument",
+          "ssm:GetManifest",
+          "ssm:GetParameter",
+          "ssm:GetParameters",
+          "ssm:ListAssociations",
+          "ssm:ListInstanceAssociations",
+          "ssm:PutInventory",
+          "ssm:PutComplianceItems",
+          "ssm:PutConfigurePackageResult",
+          "ssm:UpdateAssociationStatus",
+          "ssm:UpdateInstanceAssociationStatus",
+          "ssm:UpdateInstanceInformation"
         ]
-        Effect   = "Allow"
-        Resource = [
-          "arn:aws:s3:::${var.project}-${var.environment}-web-assets/*",
-          "arn:aws:s3:::${var.project}-${var.environment}-web-assets"
-        ]
-      }
-    ]
-  })
-
-  tags = {
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "web"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
-  }
-}
-
-# Custom policy for app tier (appropriate permissions)
-resource "aws_iam_policy" "app_policy" {
-  name        = "${var.project}-${var.environment}-app-policy"
-  description = "Policy for app tier instances"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Effect   = "Allow"
-        Resource = [
-          "arn:aws:s3:::${var.project}-${var.environment}-app-data/*",
-          "arn:aws:s3:::${var.project}-${var.environment}-app-data"
-        ]
+        Resource = "*"
       },
       {
+        Effect = "Allow"
         Action = [
-          "secretsmanager:GetSecretValue"
+          "ssmmessages:CreateControlChannel",
+          "ssmmessages:CreateDataChannel",
+          "ssmmessages:OpenControlChannel",
+          "ssmmessages:OpenDataChannel"
         ]
-        Effect   = "Allow"
-        Resource = "arn:aws:secretsmanager:*:*:secret:${var.project}/${var.environment}/*"
+        Resource = "*"
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2messages:AcknowledgeMessage",
+          "ec2messages:DeleteMessage",
+          "ec2messages:FailMessage",
+          "ec2messages:GetEndpoint",
+          "ec2messages:GetMessages",
+          "ec2messages:SendReply"
+        ]
+        Resource = "*"
       }
     ]
   })
-
-  tags = {
-    Project     = var.project
-    Environment = var.environment
-    Tier        = "app"
-    ManagedBy   = "terraform"
-    Owner       = var.owner
-  }
 }
 
-# Attach custom policies
-resource "aws_iam_role_policy_attachment" "web_custom" {
-  role       = aws_iam_role.web_role.name
-  policy_arn = aws_iam_policy.web_policy.arn
-}
-
-resource "aws_iam_role_policy_attachment" "app_custom" {
-  role       = aws_iam_role.app_role.name
-  policy_arn = aws_iam_policy.app_policy.arn
+resource "aws_iam_instance_profile" "session_manager" {
+  name = "SessionManagerInstanceProfile"
+  role = aws_iam_role.session_manager_role.name
 }
