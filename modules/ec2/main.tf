@@ -9,6 +9,7 @@ resource "aws_instance" "web_a" {
   subnet_id              = var.web_subnet_a_id
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = var.iam_instance_profile
+  key_name = var.key_name
 
   user_data = <<-EOF
     #!/bin/bash -xe

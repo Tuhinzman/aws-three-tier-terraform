@@ -42,4 +42,5 @@ module "ec2" {
   web_subnet_b_id             = module.subnets.web_subnet_b_id
   security_group_id           = module.security_groups.instance_sg_id
   iam_instance_profile        = module.iam.session_manager_instance_profile_name
+  key_name              = var.key_name
 }

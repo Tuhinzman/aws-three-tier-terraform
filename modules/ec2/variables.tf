@@ -29,3 +29,8 @@ variable "iam_instance_profile" {
   description = "IAM instance profile name for EC2 instances"
   type        = string
 }
+
+variable "key_name" {
+  description = "Name of the existing EC2 key pair to use for SSH access"
+  type        = string
+}
